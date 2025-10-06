@@ -82,11 +82,12 @@ int main(){
     printf("%d\n", escolha);
     printf("%.1f", L);
     
+    int i=0, j=0;
     while (fgets(linha, sizeof(linha), file)){
         
         printf("%s\n", strtok(linha, ","));
-        int i;
-        for(i = 0; i < 3; i++){
+        int k;
+        for(k = 0; k < 3; k++){
             printf("%s\n", strtok(NULL, ","));
         }
         
