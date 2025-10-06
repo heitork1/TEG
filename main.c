@@ -17,6 +17,7 @@ void den(float matrizFinal[150][150], float DEmin, float DEmax, float L){
             }
         }
     }
+    printf("DEmin: %f, DEmax: %f", DEmin, DEmax);
 }
 
 float calcDist(float  x1 ,float x2, float  x3 ,float x4, float  y1 ,float y2, float  y3 ,float y4 ){
@@ -24,7 +25,7 @@ float calcDist(float  x1 ,float x2, float  x3 ,float x4, float  y1 ,float y2, fl
     return (dist);
 }
 
-void calcAllDist(float matriz[150][4], float matrizFinal[150][150]){
+void calcAllDist(float matriz[150][4], float matrizFinal[150][150], float L){
     int i;
     int j;
     float DEmin = 100; //valor arbitrário grande
@@ -32,6 +33,10 @@ void calcAllDist(float matriz[150][4], float matrizFinal[150][150]){
     float dist;
     for(i = 0; i < 150; i++){
         for(j=0; j<150; j++){
+            if(i == j){
+                matrizFinal[i][j] = 0;
+                continue;
+            }
             dist = calcDist(matriz[i][0], matriz[i][1], matriz[i][2], matriz[i][3], matriz[j][0], matriz[j][1], matriz[j][2], matriz[j][3]);
             matrizFinal[i][j] = dist;
             if(dist < DEmin){
@@ -42,6 +47,8 @@ void calcAllDist(float matriz[150][4], float matrizFinal[150][150]){
             }
         }
     }
+    
+    den(matrizFinal, DEmin, DEmax, L);
 }
 
 //para cada linha k, vou passar para calDist os 4 atributos de K + 
@@ -50,7 +57,7 @@ void calcAllDist(float matriz[150][4], float matrizFinal[150][150]){
 int main(){
     FILE * file; 
     char linha[256];
-    int escolha;
+    int escolha, i=0, j;
     float L;
     float matriz[150][4];
     float matrizFinal[150][150];
@@ -79,23 +86,40 @@ int main(){
         default:
             printf("Escolha não definida");
     }
-    printf("%d\n", escolha);
-    printf("%.1f", L);
     
-    int i=0, j=0;
+    printf("%d\n", escolha);
+    printf("%.1f\n", L);
+    
     while (fgets(linha, sizeof(linha), file)){
-        
-        printf("%s\n", strtok(linha, ","));
-        int k;
-        for(k = 0; k < 3; k++){
-            printf("%s\n", strtok(NULL, ","));
+        j=0;
+        matriz[i][j] = atof(strtok(linha, ","));//pega primeira coluna e converte para numero
+        // printf("%f\n", matriz[i][j]);
+        // printf("%s\n", strtok(linha, ","));
+        for(j = 1; j < 4; j++){
+            matriz[i][j] = atof(strtok(NULL, ","));
         }
-        
+        i++;
     }
+    // for(i = 0; i < 150; i++){
+    //     printf("-------------------\n");
+    //     for(j=0; j<4; j++){
+    //         printf("%.2f\n", matriz[i][j]);
+    //     }
+    // }
+    
+    calcAllDist(matriz, matrizFinal, L);
+    
+    // printf("\nMatriz de adjacencias:\n");
+    // for(i = 0; i < 150; i++){
+    //     printf("| ");
+    //     for(j=0; j<150; j++){
+    //         printf("%.f ", matrizFinal[i][j]);
+    //     }
+    //     printf("|\n");
+    //     printf("Fim da linha\n");
+    // }
     
     fclose(file);
-    float teste = calcDist(5.1,3.5,1.4,.2,4.9,3,1.4,.2);
-    printf("%f\n", teste);
 
     return 0;
 }
