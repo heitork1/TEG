@@ -178,7 +178,7 @@ int main() {
     if (!grafoCarregado) {
         printf("Grafo não encontrado. Carregando dataset e gerando grafo...\n");
 
-        file = fopen("my_dataset.txt", "r");
+        file = fopen("my_dataset.csv", "r");
         if(file == NULL){
             printf("Erro ao abrir o arquivo do dataset.\n");
             return 1;
@@ -196,18 +196,6 @@ int main() {
         fclose(file);
         calcAllDist(matriz, matrizFinal, L);
         salvarMatrizCSV(matrizFinal, L);
-    }
-
-    // Exibe a matriz de adjacência (compacta visual)
-    printf("\nMatriz de Adjacência (apenas conexões):\n");
-    for(i = 0; i < N; i++){
-        printf("%d -> ", i);
-        for(j = 0; j < N; j++){
-            if (matrizFinal[i][j] == 1) {
-                printf("%d ", j);
-            }
-        }
-        printf("\n");
     }
 
     encontrarComponentesConexos(matrizFinal);
