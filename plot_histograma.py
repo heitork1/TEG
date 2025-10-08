@@ -1,62 +1,43 @@
-import pandas as pd
-import networkx as nx
 import matplotlib.pyplot as plt
 
-# Lista de limiares usados no C
-limiares = [0.0, 0.3, 0.5, 0.9]
+# === DADOS PARA OS 4 CASOS ===
+tamanhos_casos = [
+    [1, 2, 3],           # L = 0.0
+    [1],                # L = 0.3
+    [1],                # L = 0.5
+    [1]                 # L = 0.9
+]
 
-# Dicionário para armazenar contagens por tamanho para cada L
-resultados_por_L = {}
+quantidades_casos = [
+    [145, 1, 1],         # Frequências para L = 0.0
+    [150],              # L = 0.3
+    [150],              # L = 0.5
+    [150]               # L = 0.9
+]
 
-for L in limiares:
-    nome_arquivo = f"grafo_L_{L:.1f}.csv"
-    try:
-        df = pd.read_csv(nome_arquivo)
-    except FileNotFoundError:
-        print(f"Arquivo {nome_arquivo} não encontrado. Ignorando.")
-        continue
-
-    # Cria grafo orientado com as arestas
-    G = nx.DiGraph()
-    for _, row in df.iterrows():
-        G.add_edge(row['origem'], row['destino'])
-
-    # Converte para grafo não-direcionado (componentes conexos exigem isso)
-    G_undirected = G.to_undirected()
-
-    # Calcula componentes conexos
-    componentes = list(nx.connected_components(G_undirected))
-
-    # Conta componentes por tamanho
-    contagem_tamanhos = {}
-    for componente in componentes:
-        tamanho = len(componente)
-        contagem_tamanhos[tamanho] = contagem_tamanhos.get(tamanho, 0) + 1
-
-    # Armazena para uso posterior
-    resultados_por_L[L] = contagem_tamanhos
+titulos = ["Limiar L = 0.0", "Limiar L = 0.3", "Limiar L = 0.5", "Limiar L = 0.9"]
+cores = ['blue', 'green', 'red', 'purple']
 
 # === PLOT ===
-fig, axs = plt.subplots(2, 2, figsize=(14, 10))
-axs = axs.flatten()
+fig, axs = plt.subplots(1, 4, figsize=(20, 5), sharey=True)
 
-for idx, L in enumerate(limiares):
-    ax = axs[idx]
-    contagem = resultados_por_L.get(L, {})
-    
-    if not contagem:
-        ax.set_title(f"L = {L} (sem dados)")
-        continue
+for i in range(4):
+    ax = axs[i]
+    tamanhos = tamanhos_casos[i]
+    quantidades = quantidades_casos[i]
 
-    tamanhos = sorted(contagem.keys())
-    quantidades = [contagem[t] for t in tamanhos]
+    ax.scatter(tamanhos, quantidades, color=cores[i], s=100)
 
-    ax.bar(tamanhos, quantidades, color='skyblue', edgecolor='black')
-    ax.set_title(f"Limiar L = {L}")
+    for x, y in zip(tamanhos, quantidades):
+        ax.text(x, y + 2, f"{y}", ha='center', fontsize=9)
+
+    ax.set_title(titulos[i])
     ax.set_xlabel("Tamanho do Componente")
-    ax.set_ylabel("Número de Componentes")
+    if i == 0:
+        ax.set_ylabel("Nº de Componentes")
     ax.grid(True)
 
 plt.tight_layout()
-plt.suptitle("Histograma: Nº de Componentes vs Tamanho (por Limiar)", fontsize=16, y=1.03)
+plt.suptitle("Nuvem de Pontos: Componentes Conexos por Tamanho (4 Casos)", fontsize=16, y=1.05)
+plt.subplots_adjust(top=0.85)
 plt.show()
