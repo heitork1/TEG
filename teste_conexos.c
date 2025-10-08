@@ -71,6 +71,8 @@ void DFS(int v, int visitado[N], float matrizAdj[N][N], int *tamanhoComponente) 
 void encontrarComponentesConexos(float matrizAdj[N][N]) {
     int visitado[N] = {0};
     int numComponentes = 0;
+    int tamanhos[N] = {0};  // Guarda os tamanhos de cada componente
+    int ocorrenciasTamanhos[N+1] = {0}; // Para contar quantos componentes têm certo tamanho (tamanho máximo N)
 
     printf("\n--- Componentes Conexos ---\n");
 
@@ -78,13 +80,24 @@ void encontrarComponentesConexos(float matrizAdj[N][N]) {
         if (!visitado[i]) {
             int tamanhoComponente = 0;
             DFS(i, visitado, matrizAdj, &tamanhoComponente);
+            tamanhos[numComponentes] = tamanhoComponente;
+            ocorrenciasTamanhos[tamanhoComponente]++;
             numComponentes++;
             printf("Componente %d: tamanho = %d\n", numComponentes, tamanhoComponente);
         }
     }
 
     printf("\nNúmero total de componentes conexos: %d\n", numComponentes);
+
+    // Saída compacta:
+    printf("\nResumo compacto:\n");
+    for (int i = 1; i <= N; i++) {
+        if (ocorrenciasTamanhos[i] > 0) {
+            printf("%d componente(s) de tamanho %d\n", ocorrenciasTamanhos[i], i);
+        }
+    }
 }
+
 //FIM DO NOVO
 
 int main(){
