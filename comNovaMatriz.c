@@ -6,10 +6,10 @@
 
 #define N 150
 
-// FunC'C#o que transforma matriz de distC"ncias em grafo binC!rio (0 ou 1)
+// Funcao que transforma matriz de distancias em grafo binario (0 ou 1)
 void den(float matrizDist[N][N], float matrizAdj[N][N], float DEmin, float DEmax, float L) {
     int i, j;
-    float den_val; // Renomeado para não confundir com a função
+    float den_val;
     
     // Evita divisão por zero
     float range = DEmax - DEmin;
@@ -28,19 +28,17 @@ void den(float matrizDist[N][N], float matrizAdj[N][N], float DEmin, float DEmax
     printf("DEmin: %f, DEmax: %f\n", DEmin, DEmax);
 }
 
-// DistC"ncia Euclidiana entre dois vetores 4D
+// Distancia Euclidiana entre dois vetores 4D
 float calcDist(float x1, float x2, float x3, float x4, float y1, float y2, float y3, float y4) {
 	return sqrt(pow(x1 - y1, 2) + pow(x2 - y2, 2) + pow(x3 - y3, 2) + pow(x4 - y4, 2));
 }
 
-// Calcula todas as distC"ncias e aplica o limiar
-// CORREÇÃO: Esta função agora usa uma matriz temporária para as distâncias
-// antes de chamar a função 'den' para criar a matriz de adjacência final.
+// Calcula todas as distancias e aplica o limiar
 void calcAllDistAndAdj(float matrizDados[N][4], float matrizAdjFinal[N][N], float L) {
     int i, j;
     float matrizDistancias[N][N]; // Matriz temporária para as distâncias
 
-    // Usar FLT_MAX é mais correto para floats
+    // FLT_MAX é o maior numero possivel para float
     float DEmin = FLT_MAX, DEmax = 0, dist;
 
     for(i = 0; i < N; i++) {
@@ -55,7 +53,7 @@ void calcAllDistAndAdj(float matrizDados[N][4], float matrizAdjFinal[N][N], floa
             if(dist > DEmax) DEmax = dist;
         }
     }
-    for(i=0; i<N; i++) matrizDistancias[i][i] = 0; // Preenche a diagonal
+    for(i=0; i<N; i++) matrizDistancias[i][i] = 0; // Preenche a diagonal, elemento para si
 
     // Agora chama 'den' para popular a matriz de adjacência final
     den(matrizDistancias, matrizAdjFinal, DEmin, DEmax, L);
@@ -86,7 +84,7 @@ void salvarMatrizCSV(float matriz[N][N], float L) {
 	printf("Grafo salvo (compactado) em: %s\n", nomeArquivo);
 }
 
-// LC* o grafo salvo como lista de arestas
+// Lê o grafo salvo
 int carregarMatrizCSV(float matriz[N][N], float L) {
 	char nomeArquivo[50];
 	snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.txt", L);
@@ -104,7 +102,7 @@ int carregarMatrizCSV(float matriz[N][N], float L) {
 	char linha[100];
 	int i, j;
 
-	// Ignora cabeC'alho
+	// Ignora cabecalho (origem,destino)
 	fgets(linha, sizeof(linha), fp);
 
 	while (fgets(linha, sizeof(linha), fp)) {
@@ -139,7 +137,6 @@ void encontrarComponentesConexos(float matrizAdj[N][N]) {
 	int tamanhos[N] = {0};
 	int ocorrenciasTamanhos[N + 1] = {0};
 
-	printf("\n--- Componentes Conexos ---\n");
 
 	for (int i = 0; i < N; i++) {
 		if (!visitado[i]) {
@@ -148,13 +145,12 @@ void encontrarComponentesConexos(float matrizAdj[N][N]) {
 			tamanhos[numComponentes] = tamanhoComponente;
 			ocorrenciasTamanhos[tamanhoComponente]++;
 			numComponentes++;
-			printf("Componente %d: tamanho = %d\n", numComponentes, tamanhoComponente);
 		}
 	}
 
-	printf("\nNC:mero total de componentes conexos: %d\n", numComponentes);
+	printf("\nNumero total de componentes conexos: %d\n", numComponentes);
 
-	printf("\nResumo compacto:\n");
+	printf("\nResumo:\n");
 	for (int i = 1; i <= N; i++) {
 		if (ocorrenciasTamanhos[i] > 0) {
 			printf("%d componente(s) de tamanho %d\n", ocorrenciasTamanhos[i], i);
@@ -162,7 +158,6 @@ void encontrarComponentesConexos(float matrizAdj[N][N]) {
 	}
 }
 
-// MAIN
 int main() {
 	FILE *file;
 	char linha[256];
@@ -188,18 +183,18 @@ int main() {
 		L = 0.9;
 		break;
 	default:
-		printf("Escolha invC!lida.\n");
+		printf("Escolha invalida.\n");
 		return 1;
 	}
 
-	printf("Valor de L selecionado: %.1f\n", L);
+	printf("Valor de L selecionado: %.1f\n\n", L);
 
 	// Tenta carregar grafo compactado
 	int grafoCarregado = carregarMatrizCSV(matrizFinal, L);
 
-	// Se nC#o encontrou o grafo, calcula e salva
+	// Se nao encontrou o grafo, calcula e salva novo arquivo
 	if (!grafoCarregado) {
-		printf("Grafo nC#o encontrado. Carregando dataset e gerando grafo...\n");
+		printf("Grafo nao encontrado. Carregando dataset e gerando grafo...\n\n");
 
 		file = fopen("my_dataset.txt", "r");
 		if(file == NULL) {
@@ -218,18 +213,6 @@ int main() {
 		fclose(file);
 		calcAllDistAndAdj(matriz, matrizFinal, L);
 		salvarMatrizCSV(matrizFinal, L);
-	}
-
-	// Exibe a matriz de adjacC*ncia (compacta visual)
-	printf("\nMatriz de AdjacC*ncia (apenas conexC5es):\n");
-	for(i = 0; i < N; i++) {
-		printf("%d -> ", i);
-		for(j = 0; j < N; j++) {
-			if (matrizFinal[i][j] == 1) {
-				printf("%d ", j);
-			}
-		}
-		printf("\n");
 	}
 
 	encontrarComponentesConexos(matrizFinal);
