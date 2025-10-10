@@ -62,7 +62,7 @@ void calcAllDistAndAdj(float matrizDados[N][4], float matrizAdjFinal[N][N], floa
 // Salva o grafo como lista de arestas: origem,destino
 void salvarMatrizCSV(float matriz[N][N], float L) {
 	char nomeArquivo[50];
-	snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.txt", L);
+	snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.csv", L);
 
 	FILE *fp = fopen(nomeArquivo, "w");
 	if (fp == NULL) {
@@ -87,7 +87,7 @@ void salvarMatrizCSV(float matriz[N][N], float L) {
 // Lê o grafo salvo
 int carregarMatrizCSV(float matriz[N][N], float L) {
 	char nomeArquivo[50];
-	snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.txt", L);
+	snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.csv", L);
 
 	FILE *fp = fopen(nomeArquivo, "r");
 	if (fp == NULL) {
@@ -196,7 +196,7 @@ int main() {
 	if (!grafoCarregado) {
 		printf("Grafo nao encontrado. Carregando dataset e gerando grafo...\n\n");
 
-		file = fopen("my_dataset.txt", "r");
+		file = fopen("my_dataset.csv", "r");
 		if(file == NULL) {
 			printf("Erro ao abrir o arquivo do dataset.\n");
 			return 1;
@@ -216,6 +216,5 @@ int main() {
 	}
 
 	encontrarComponentesConexos(matrizFinal);
-
 	return 0;
 }
