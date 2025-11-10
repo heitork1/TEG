@@ -3,11 +3,11 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include <ctype.h>
 
-#define N 150 // Número de nós (amostras)
+#define N 150 // Número de nós (amostras). Adequado para o dataset Iris.
 #define MAX_LABEL_LEN 10 // Tamanho máximo do rótulo
-#define NUM_CLASSES 3 // Temos 3 classes: Tipo1, Tipo2, Tipo3
+#define NUM_CLASSES 3 // Temos 3 classes: Tipo 1, Tipo 2, Tipo 3
+#define TARGET_CLUSTERS 3 // Número desejado de clusters
 
 // Estrutura para o Centro de Gravidade
 typedef struct {
@@ -15,193 +15,311 @@ typedef struct {
     int contagem;
 } CentroDeGravidade;
 
-// Estrutura para armazenar as métricas de avaliação por classe
+// Estrutura para armazenar resultado de clustering (não usado diretamente, mas a lógica usa variáveis equivalentes)
 typedef struct {
-    float accuracy;
-    float precision;
-    float recall;
-    float f1_score;
-} Metricas;
+    int numComponentes;
+    int tamanhos[N];
+    float L;
+    float desvioPadrao;
+    float score; // Métrica para avaliar qualidade do balanceamento
+} ResultadoClustering;
 
 // --- FUNÇÕES DE UTENSÍLIOS E CÁLCULO DE GRAFO ---
-// Funcao para remover espacos em branco a esquerda e a direita de uma string (FIX para leitura CSV)
-void trim_whitespace(char *str) {
-    char *end;
 
-    // 1. Remove espacos a esquerda
-    while(isspace((unsigned char)*str)) str++;
-
-    if(*str == 0) // String vazia ou so com espacos
-        return;
-
-    // 2. Remove espacos a direita
-    end = str + strlen(str) - 1;
-    while(end > str && isspace((unsigned char)*end)) end--;
-
-    // 3. Adiciona o terminador de string (null terminator)
-    *(end + 1) = 0;
-}
-
-// Funcao que transforma matriz de distancias em grafo binario (0 ou 1)
+/**
+ * @brief Transforma matriz de distancias em grafo binario (0 ou 1) baseado no limiar L.
+ *
+ * @param matrizDist Matriz de distâncias euclidianas.
+ * @param matrizAdj Matriz de adjacência de saída (0 ou 1).
+ * @param DEmin Distância mínima.
+ * @param DEmax Distância máxima.
+ * @param L Limiar normalizado (entre 0 e 1).
+ */
 void den(float matrizDist[N][N], float matrizAdj[N][N], float DEmin, float DEmax, float L) {
     int i, j;
     float den_val;
     
-    // Evita divisão por zero
+    // Range para normalização da distância
     float range = DEmax - DEmin;
-    if (range == 0) range = 1.0;
+    if (range == 0) range = 1.0; // Evita divisão por zero
 
     for (i = 0; i < N; i++) {
         for (j = 0; j < N; j++) {
             if (i == j) {
-                matrizAdj[i][j] = 0; // Sem laços (arestas para si mesmo)
+                matrizAdj[i][j] = 0;
                 continue;
             }
+            
+            // Normaliza a distância para o range [0, 1]
             den_val = (matrizDist[i][j] - DEmin) / range;
+            
+            // Cria a aresta se a distância normalizada for menor ou igual ao limiar L
             matrizAdj[i][j] = (den_val <= L) ? 1 : 0;
         }
     }
-    printf("DEmin: %.4f, DEmax: %.4f\n", DEmin, DEmax);
 }
 
-// Distancia Euclidiana entre dois vetores 4D
+/**
+ * @brief Distancia Euclidiana entre dois vetores 4D.
+ */
 float calcDist(float x1, float x2, float x3, float x4, float y1, float y2, float y3, float y4) {
     return sqrt(pow(x1 - y1, 2) + pow(x2 - y2, 2) + pow(x3 - y3, 2) + pow(x4 - y4, 2));
 }
 
-// Calcula todas as distancias e aplica o limiar
-void calcAllDistAndAdj(float matrizDados[N][4], float matrizAdjFinal[N][N], float L) {
+/**
+ * @brief Calcula todas as distancias e retorna DEmin e DEmax.
+ */
+void calcAllDist(float matrizDados[N][4], float matrizDist[N][N], float *DEmin, float *DEmax) {
     int i, j;
-    float matrizDistancias[N][N]; // Matriz temporária para as distâncias
-
-    // FLT_MAX é o maior numero possivel para float
-    float DEmin = FLT_MAX, DEmax = 0, dist;
+    *DEmin = FLT_MAX;
+    *DEmax = 0;
+    float dist;
 
     for(i = 0; i < N; i++) {
-        for(j = i + 1; j < N; j++) { // Otimização para calcular cada par uma vez
+        for(j = i + 1; j < N; j++) {
             dist = calcDist(matrizDados[i][0], matrizDados[i][1], matrizDados[i][2], matrizDados[i][3],
                             matrizDados[j][0], matrizDados[j][1], matrizDados[j][2], matrizDados[j][3]);
             
-            matrizDistancias[i][j] = dist;
-            matrizDistancias[j][i] = dist; // Matriz simétrica
+            matrizDist[i][j] = dist;
+            matrizDist[j][i] = dist;
 
-            if(dist < DEmin) DEmin = dist;
-            if(dist > DEmax) DEmax = dist;
+            if(dist < *DEmin) *DEmin = dist;
+            if(dist > *DEmax) *DEmax = dist;
         }
     }
-    for(i=0; i<N; i++) matrizDistancias[i][i] = 0; // Preenche a diagonal, elemento para si
-
-    // Agora chama 'den' para popular a matriz de adjacência final
-    den(matrizDistancias, matrizAdjFinal, DEmin, DEmax, L);
+    // Distância de um nó para ele mesmo é 0
+    for(i=0; i<N; i++) matrizDist[i][i] = 0;
 }
 
-// Salva o grafo como lista de arestas: origem,destino
-void salvarMatrizCSV(float matriz[N][N], float L) {
-    char nomeArquivo[50];
-    snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.txt", L);
+// --- FUNÇÕES DE CLUSTERING (COMPONENTES CONEXOS) ---
 
-    FILE *fp = fopen(nomeArquivo, "w");
-    if (fp == NULL) {
-        printf("Erro ao criar o arquivo CSV.\n");
-        return;
-    }
-
-    fprintf(fp, "origem,destino\n");
-
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j++) {
-            if (matriz[i][j] == 1) {
-                fprintf(fp, "%d,%d\n", i, j);
-            }
-        }
-    }
-
-    fclose(fp);
-    printf("Grafo salvo (compactado) em: %s\n", nomeArquivo);
-}
-
-// Lê o grafo salvo
-int carregarMatrizCSV(float matriz[N][N], float L) {
-    char nomeArquivo[50];
-    snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.txt", L);
-
-    FILE *fp = fopen(nomeArquivo, "r");
-    if (fp == NULL) {
-        return 0;
-    }
-
-    // Zera a matriz
-    for (int i = 0; i < N; i++)
-        for (int j = 0; j < N; j++)
-            matriz[i][j] = 0;
-
-    char linha[100];
-    int i, j;
-
-    // Ignora cabecalho (origem,destino)
-    fgets(linha, sizeof(linha), fp);
-
-    while (fgets(linha, sizeof(linha), fp)) {
-        if (sscanf(linha, "%d,%d", &i, &j) == 2) {
-            if (i >= 0 && i < N && j >= 0 && j < N) {
-                matriz[i][j] = 1;
-            }
-        }
-    }
-
-    fclose(fp);
-    printf("Grafo carregado (compactado) de: %s\n", nomeArquivo);
-    return 1;
-}
-
-
-// --- FUNÇÕES DE CLUSTERING (COMPONENTES CONEXOS E VOTAÇÃO) ---
-
-// DFS adaptada para registrar membros do componente
+/**
+ * @brief DFS adaptada para encontrar todos os membros de um componente conexo.
+ *
+ * @param v Nó atual.
+ * @param visitado Array de nós visitados.
+ * @param matrizAdj Matriz de adjacência do grafo binário.
+ * @param tamanhoComponente Ponteiro para o tamanho do componente (acumulador).
+ * @param membrosComponente Array para armazenar os índices dos nós do componente.
+ * @param idxMembros Ponteiro para o índice atual no array membrosComponente.
+ */
 void DFS_Cluster(int v, int visitado[N], float matrizAdj[N][N], int *tamanhoComponente, int membrosComponente[N], int *idxMembros) {
     visitado[v] = 1;
     (*tamanhoComponente)++;
-    
-    // Adiciona o nó atual à lista de membros do componente
     membrosComponente[(*idxMembros)++] = v; 
 
     for (int i = 0; i < N; i++) {
-        // Verifica a aresta e se o nó ainda não foi visitado
+        // Verifica se há aresta e se o nó vizinho não foi visitado
         if (matrizAdj[v][i] == 1 && !visitado[i]) {
             DFS_Cluster(i, visitado, matrizAdj, tamanhoComponente, membrosComponente, idxMembros);
         }
     }
 }
 
-// Função auxiliar para calcular a moda (votação) e rotular os nós do cluster
-void votarERotular(int membrosComponente[N], int numMembros, char rotulosOriginais[N][MAX_LABEL_LEN], char rotulosPreditos[N][MAX_LABEL_LEN]) {
+/**
+ * @brief Encontra todos os componentes conexos (clusters) no grafo.
+ *
+ * @param matrizAdj Matriz de adjacência do grafo.
+ * @param tamanhos Array de saída com o tamanho de cada componente.
+ * @param clusters Matriz de saída com os índices dos nós em cada cluster.
+ * @param tamanhosClusters Array de saída com o número de membros de cada cluster.
+ * @return int O número total de componentes conexos encontrados.
+ */
+int encontrarComponentes(float matrizAdj[N][N], int tamanhos[N], int clusters[N][N], int tamanhosClusters[N]) {
+    int visitado[N] = {0};
+    int numComponentes = 0;
+
+    for (int i = 0; i < N; i++) {
+        if (!visitado[i]) {
+            int tamanhoComponente = 0;
+            int membrosComponente[N];
+            int idxMembros = 0; // Índice para controle de preenchimento do array de membros
+
+            // Inicia a busca em profundidade para encontrar um novo componente
+            DFS_Cluster(i, visitado, matrizAdj, &tamanhoComponente, membrosComponente, &idxMembros);
+            
+            tamanhos[numComponentes] = tamanhoComponente;
+            
+            // Armazena os membros do cluster
+            for (int k = 0; k < idxMembros; k++) {
+                clusters[numComponentes][k] = membrosComponente[k];
+            }
+            tamanhosClusters[numComponentes] = idxMembros;
+            
+            numComponentes++;
+        }
+    }
+
+    return numComponentes;
+}
+
+/**
+ * @brief Calcula desvio padrão dos tamanhos dos clusters.
+ */
+float calcularDesvioPadrao(int tamanhos[N], int numComponentes) {
+    if (numComponentes == 0) return FLT_MAX;
     
-    int contagemTipo1 = 0;
-    int contagemTipo2 = 0;
-    int contagemTipo3 = 0;
-    int log_count = 0;
+    float media = 0;
+    for (int i = 0; i < numComponentes; i++) {
+        media += tamanhos[i];
+    }
+    media /= numComponentes;
+    
+    float variancia = 0;
+    for (int i = 0; i < numComponentes; i++) {
+        variancia += pow(tamanhos[i] - media, 2);
+    }
+    variancia /= numComponentes;
+    
+    return sqrt(variancia);
+}
+
+/**
+ * @brief Função de score para avaliar qualidade do clustering.
+ * Prioriza obter exatamente TARGET_CLUSTERS (3) com tamanhos similares.
+ */
+float calcularScore(int numComponentes, int tamanhos[N]) {
+    if (numComponentes != TARGET_CLUSTERS) {
+        // Penalização severa se não tiver exatamente 3 clusters (prioridade máxima)
+        // A penalização é baseada no quão longe de 3 está.
+        return FLT_MAX - (100.0 * (float)abs(numComponentes - TARGET_CLUSTERS));
+    }
+    
+    // Queremos minimizar o desvio padrão dos tamanhos
+    float desvioPadrao = calcularDesvioPadrao(tamanhos, numComponentes);
+    
+    // Tamanho ideal por cluster (N/3)
+    float tamanhoIdeal = (float)N / TARGET_CLUSTERS;
+    
+    // Penaliza clusters muito diferentes do tamanho ideal (penalização de balanceamento)
+    float penalizacao = 0;
+    for (int i = 0; i < numComponentes; i++) {
+        penalizacao += fabs(tamanhos[i] - tamanhoIdeal);
+    }
+    
+    // O score é o desvio padrão (que deve ser minimizado) + uma penalização por desbalanceamento
+    // Queremos minimizar este valor.
+    return desvioPadrao + penalizacao * 0.1;
+}
+
+// --- TREINAMENTO: BUSCA DO MELHOR LIMIAR L ---
+
+/**
+ * @brief Realiza a busca em grade para encontrar o melhor limiar L
+ * que produz os clusters mais balanceados e com o número desejado.
+ *
+ * @return float O melhor valor de L encontrado.
+ */
+float treinarClustering(float matrizDist[N][N], float DEmin, float DEmax, 
+                        float matrizAdjFinal[N][N], int melhorTamanhos[N],
+                        int melhorClusters[N][N], int melhorTamanhosClusters[N]) {
+    
+    printf("\n========================================\n");
+    printf("  FASE 1: TREINAMENTO (NÃO SUPERVISIONADO)\n");
+    printf("========================================\n\n");
+    
+    printf("Buscando o melhor limiar L para obter %d clusters balanceados...\n\n", TARGET_CLUSTERS);
+    printf("Range de distâncias: [%.4f, %.4f]\n\n", DEmin, DEmax);
+    
+    float melhorL = 0;
+    float melhorScore = FLT_MAX;
+    int melhorNumComponentes = 0;
+    
+    // Busca em grade de valores de L
+    int numTestes = 500; // Número de valores de L para testar
+    
+    printf("Testando %d valores de L...\n", numTestes);
+    printf("%-8s | %-12s | %-12s | %-8s\n", "L", "Clusters", "Desvio", "Score");
+    printf("---------|--------------|--------------|----------\n");
+    
+    for (int i = 0; i <= numTestes; i++) {
+        float L = (float)i / numTestes; // L varia de 0.0 a 1.0
+        
+        float matrizAdj[N][N];
+        den(matrizDist, matrizAdj, DEmin, DEmax, L);
+        
+        int tamanhos[N] = {0};
+        int clusters[N][N];
+        int tamanhosClusters[N];
+        int numComponentes = encontrarComponentes(matrizAdj, tamanhos, clusters, tamanhosClusters);
+        
+        float score = calcularScore(numComponentes, tamanhos);
+        
+        // Exibe apenas resultados com 3 clusters ou próximos para não poluir a saída
+        if (numComponentes >= TARGET_CLUSTERS - 1 && numComponentes <= TARGET_CLUSTERS + 1) {
+            float desvio = calcularDesvioPadrao(tamanhos, numComponentes);
+            printf("%-8.2f | %-12d | %-12.2f | %-8.2f", L, numComponentes, desvio, score);
+            
+            if (numComponentes == TARGET_CLUSTERS) {
+                printf(" [OK]");
+            }
+            printf("\n");
+        }
+        
+        // Atualiza melhor resultado
+        if (score < melhorScore) {
+            melhorScore = score;
+            melhorL = L;
+            melhorNumComponentes = numComponentes;
+            
+            // Salva os tamanhos e clusters
+            for (int j = 0; j < numComponentes; j++) {
+                melhorTamanhos[j] = tamanhos[j];
+                melhorTamanhosClusters[j] = tamanhosClusters[j];
+                for (int k = 0; k < tamanhosClusters[j]; k++) {
+                    melhorClusters[j][k] = clusters[j][k];
+                }
+            }
+            
+            // Copia a matriz de adjacência (o grafo final)
+            for (int x = 0; x < N; x++) {
+                for (int y = 0; y < N; y++) {
+                    matrizAdjFinal[x][y] = matrizAdj[x][y];
+                }
+            }
+        }
+    }
+    
+    printf("\n>>> MELHOR RESULTADO:\n");
+    printf("     L = %.3f\n", melhorL);
+    printf("     Número de clusters: %d\n", melhorNumComponentes);
+    printf("     Score: %.2f\n", melhorScore);
+    printf("     Tamanhos dos clusters: ");
+    for (int i = 0; i < melhorNumComponentes; i++) {
+        printf("%d ", melhorTamanhos[i]);
+    }
+    printf("\n");
+    
+    return melhorL;
+}
+
+// --- VOTAÇÃO E ROTULAGEM (APÓS TREINAMENTO) ---
+
+/**
+ * @brief Vota e atribui o rótulo majoritário do ground truth a todos os membros do cluster.
+ */
+void votarERotularCluster(int membrosComponente[N], int numMembros, 
+                          char rotulosOriginais[N][MAX_LABEL_LEN], 
+                          char rotulosPreditos[N][MAX_LABEL_LEN],
+                          int clusterID) {
+    
+    int contagemTipo1 = 0, contagemTipo2 = 0, contagemTipo3 = 0;
 
     for (int k = 0; k < numMembros; k++) {
         int no = membrosComponente[k];
         
-        // Contagem dos votos baseada no rótulo original (Ground Truth)
         if (strcmp(rotulosOriginais[no], "Tipo 1") == 0) { 
             contagemTipo1++;
         } else if (strcmp(rotulosOriginais[no], "Tipo 2") == 0) {
             contagemTipo2++;
         } else if (strcmp(rotulosOriginais[no], "Tipo 3") == 0) {
             contagemTipo3++;
-        } else {
-            if (log_count < 5) { // Limita o log a 5 nós para não poluir
-                printf(" [DEBUG-VOTO: Nó %d, Rótulo não reconhecido: '%s']", no, rotulosOriginais[no]);
-                log_count++;
-            }
         }
     }
 
     char *rotuloVencedor;
     
-    // Lógica da Votação:
+    // Encontra o rótulo majoritário (regra de desempate: Tipo 1 > Tipo 2 > Tipo 3)
     if (contagemTipo1 >= contagemTipo2 && contagemTipo1 >= contagemTipo3) {
         rotuloVencedor = "Tipo 1";
     } else if (contagemTipo2 >= contagemTipo1 && contagemTipo2 >= contagemTipo3) {
@@ -210,79 +328,63 @@ void votarERotular(int membrosComponente[N], int numMembros, char rotulosOrigina
         rotuloVencedor = "Tipo 3";
     }
     
-    // Atribui o rótulo vencedor a TODOS os membros do componente (PREDICTED VALUE)
+    // Atribui o rótulo vencedor a todos os membros do cluster
     for (int k = 0; k < numMembros; k++) {
         int no = membrosComponente[k];
         strcpy(rotulosPreditos[no], rotuloVencedor);
     }
 
-    printf(" -> Rótulo Vencedor: %s (Votos: T1=%d, T2=%d, T3=%d)\n", rotuloVencedor, contagemTipo1, contagemTipo2, contagemTipo3);
+    printf("  Cluster %d: %s (Votos: T1=%d, T2=%d, T3=%d | Total=%d)\n", 
+           clusterID, rotuloVencedor, contagemTipo1, contagemTipo2, contagemTipo3, numMembros);
 }
 
+/**
+ * @brief Aplica a votação e rotulagem aos clusters encontrados.
+ */
+void aplicarRotulagem(int clusters[N][N], int tamanhosClusters[N], int numClusters,
+                      char rotulosOriginais[N][MAX_LABEL_LEN], 
+                      char rotulosPreditos[N][MAX_LABEL_LEN]) {
+    
+    printf("\n========================================\n");
+    printf("  FASE 2: ROTULAGEM POR VOTAÇÃO\n");
+    printf("========================================\n\n");
+    
+    // Limpa rótulos preditos antes de iniciar
+    for (int i = 0; i < N; i++) strcpy(rotulosPreditos[i], "");
+    
+    // Rótula apenas os primeiros TARGET_CLUSTERS clusters
+    int clustersToLabel = (numClusters < TARGET_CLUSTERS) ? numClusters : TARGET_CLUSTERS;
 
-// Encontra e mostra os componentes conexos, realiza a votação e rotula os nós
-void encontrarComponentesConexos(float matrizAdj[N][N], char rotulosOriginais[N][MAX_LABEL_LEN], char rotulosPreditos[N][MAX_LABEL_LEN]) {
-    int visitado[N] = {0};
-    int numComponentes = 0;
-    int tamanhos[N] = {0};
-    int ocorrenciasTamanhos[N + 1] = {0};
-
-    // Zera os rótulos preditos inicialmente
-    for(int i=0; i<N; i++) strcpy(rotulosPreditos[i], "");
-
-
-    printf("\n--- Determinação de Componentes Conexos ---\n");
-    for (int i = 0; i < N; i++) {
-        if (!visitado[i]) {
-            int tamanhoComponente = 0;
-            int membrosComponente[N]; // Armazena os IDs dos nós neste componente
-            int idxMembros = 0;
-
-            printf("Componente %d (iniciando no nó %d).", numComponentes + 1, i);
-            
-            // Chama a DFS adaptada
-            DFS_Cluster(i, visitado, matrizAdj, &tamanhoComponente, membrosComponente, &idxMembros);
-            
-            // Realiza a votação para determinar o rótulo do cluster
-            votarERotular(membrosComponente, idxMembros, rotulosOriginais, rotulosPreditos);
-
-            // Atualiza estatísticas (histograma)
-            tamanhos[numComponentes] = tamanhoComponente;
-            ocorrenciasTamanhos[tamanhoComponente]++;
-            numComponentes++;
-        }
+    for (int i = 0; i < clustersToLabel; i++) {
+        votarERotularCluster(clusters[i], tamanhosClusters[i], 
+                             rotulosOriginais, rotulosPreditos, i + 1);
     }
-
-    printf("\nNumero total de componentes conexos: %d\n", numComponentes);
-
-    printf("\nResumo (Histograma de Componentes):\n");
-    for (int i = 1; i <= N; i++) {
-        if (ocorrenciasTamanhos[i] > 0) {
-            printf("%d componente(s) de tamanho %d\n", ocorrenciasTamanhos[i], i);
-        }
+    
+    // Se o número de clusters encontrados for diferente de TARGET_CLUSTERS,
+    // o resultado do clustering não atendeu ao critério ideal de balanceamento
+    if (numClusters != TARGET_CLUSTERS) {
+        printf("\nAtenção: O número de clusters encontrados (%d) não foi o alvo (%d).\n", numClusters, TARGET_CLUSTERS);
+        printf("A rotulagem foi aplicada aos %d maiores clusters.\n", clustersToLabel);
     }
 }
 
+// --- CENTRO DE GRAVIDADE ---
 
-// --- FUNÇÃO DE CENTRO DE GRAVIDADE ---
-
-// Calcula e exibe o centro de gravidade (média) dos 3 agrupamentos finais
+/**
+ * @brief Calcula os Centros de Gravidade (médias) para cada classe predita.
+ */
 void calcularCentrosDeGravidade(float matrizDados[N][4], char rotulosPreditos[N][MAX_LABEL_LEN]) {
     
-    // Arrays para representar os 3 centros de gravidade
+    // Inicializa os Centros de Gravidade
     CentroDeGravidade cg[NUM_CLASSES] = {{{0, 0, 0, 0}, 0}, {{0, 0, 0, 0}, 0}, {{0, 0, 0, 0}, 0}};
     
-    // Agregação dos dados
     for (int i = 0; i < N; i++) {
         int index = -1;
         
-        if (strcmp(rotulosPreditos[i], "Tipo 1") == 0) {
-            index = 0;
-        } else if (strcmp(rotulosPreditos[i], "Tipo 2") == 0) {
-            index = 1;
-        } else if (strcmp(rotulosPreditos[i], "Tipo 3") == 0) {
-            index = 2;
-        }
+        // Mapeia o rótulo predito para o índice (0, 1, 2)
+        if (strcmp(rotulosPreditos[i], "Tipo 1") == 0) index = 0;
+        else if (strcmp(rotulosPreditos[i], "Tipo 2") == 0) index = 1;
+        else if (strcmp(rotulosPreditos[i], "Tipo 3") == 0) index = 2;
 
         if (index != -1) {
             for (int j = 0; j < 4; j++) {
@@ -292,199 +394,248 @@ void calcularCentrosDeGravidade(float matrizDados[N][4], char rotulosPreditos[N]
         }
     }
 
-    printf("\n--- Cálculo do Centro de Gravidade ---\n");
+    printf("\n========================================\n");
+    printf("  FASE 3: CENTROS DE GRAVIDADE\n");
+    printf("========================================\n");
     
-    // Cálculo da média e exibição
+    char *rotulos[NUM_CLASSES] = {"Tipo 1", "Tipo 2", "Tipo 3"};
+    
     for (int i = 0; i < NUM_CLASSES; i++) {
-        char rotulo[MAX_LABEL_LEN];
-        if (i == 0) strcpy(rotulo, "Tipo 1");
-        if (i == 1) strcpy(rotulo, "Tipo 2");
-        if (i == 2) strcpy(rotulo, "Tipo 3");
-
         if (cg[i].contagem > 0) {
-            printf("Centro de Gravidade do Grupo %s (%d membros):\n", rotulo, cg[i].contagem);
-            printf("  Coordenadas: (");
+            printf("\n%s (%d amostras):\n", rotulos[i], cg[i].contagem);
+            printf("  Centro: (");
             for (int j = 0; j < 4; j++) {
                 printf("%.4f%s", cg[i].soma[j] / cg[i].contagem, (j < 3) ? ", " : "");
             }
             printf(")\n");
         } else {
-            printf("Grupo %s não possui membros.\n", rotulo);
+            printf("\n%s: SEM AMOSTRAS\n", rotulos[i]);
         }
     }
 }
 
+// --- AVALIAÇÃO (MATRIZ DE CONFUSÃO E MÉTRICAS) ---
 
-// --- FUNÇÕES DE AVALIAÇÃO (MATRIZ DE CONFUSÃO E MÉTRICAS) ---
-
-// Calcula e exibe a Matriz de Confusão e as Métricas de Qualidade
+/**
+ * @brief Calcula e exibe a Matriz de Confusão e as métricas de desempenho.
+ */
 void calcularMetricas(char rotulosOriginais[N][MAX_LABEL_LEN], char rotulosPreditos[N][MAX_LABEL_LEN]) {
-    // Matriz de Confusão (3x3): Linha=Actual (Original), Coluna=Predicted (Predito)
-    // Indices: 0=Tipo1, 1=Tipo2, 2=Tipo3
+    
     int confusionMatrix[NUM_CLASSES][NUM_CLASSES] = {0};
     char *rotulos[NUM_CLASSES] = {"Tipo 1", "Tipo 2", "Tipo 3"};
     int totalCorreto = 0;
 
-    // 1. Popula a Matriz de Confusão
     for (int i = 0; i < N; i++) {
         int actual = -1, predicted = -1;
 
-        // Mapeia rótulos originais para índices
+        // Mapeia rótulos para índices (0, 1, 2)
         for (int c = 0; c < NUM_CLASSES; c++) {
-            if (strcmp(rotulosOriginais[i], rotulos[c]) == 0) {
-                actual = c;
-            }
-            if (strcmp(rotulosPreditos[i], rotulos[c]) == 0) {
-                predicted = c;
-            }
+            if (strcmp(rotulosOriginais[i], rotulos[c]) == 0) actual = c;
+            if (strcmp(rotulosPreditos[i], rotulos[c]) == 0) predicted = c;
         }
 
         if (actual != -1 && predicted != -1) {
             confusionMatrix[actual][predicted]++;
-            if (actual == predicted) {
-                totalCorreto++;
-            }
+            if (actual == predicted) totalCorreto++;
         }
     }
 
-    printf("\n--- Avaliação de Agrupamento (Matriz de Confusão) ---\n");
+    printf("\n========================================\n");
+    printf("  FASE 4: AVALIAÇÃO DO MODELO\n");
+    printf("========================================\n");
     
-    // 2. Exibe a Matriz de Confusão
-    printf("Matriz de Confusão:\n");
-    printf("ACTUAL\\PRED |");
+    printf("\n--- Matriz de Confusão ---\n");
+    printf("REAL\\PRED  |");
     for (int j = 0; j < NUM_CLASSES; j++) {
         printf(" %7s |", rotulos[j]);
     }
-    printf("\n");
-    printf("-------------|");
+    printf(" TOTAL\n");
+    printf("-----------|");
     for (int j = 0; j < NUM_CLASSES; j++) {
         printf("---------|");
     }
-    printf("\n");
+    printf("-------\n");
 
     for (int i = 0; i < NUM_CLASSES; i++) {
-        printf("%9s  |", rotulos[i]);
+        printf("%9s |", rotulos[i]);
+        int somaLinha = 0;
         for (int j = 0; j < NUM_CLASSES; j++) {
             printf(" %7d |", confusionMatrix[i][j]);
+            somaLinha += confusionMatrix[i][j];
         }
-        printf("\n");
+        printf(" %5d\n", somaLinha);
     }
 
-    // 3. Cálculo das Métricas (Acurácia Global, Precision, Recall, F1 por classe)
     float acc_global = (float)totalCorreto / N;
-    printf("\n--- Métricas de Qualidade ---\n");
-    printf("Acurácia Global (Total de Acertos / Total de Amostras): %.4f\n", acc_global);
+    
+    printf("\n--- Acurácia Global ---\n");
+    printf("Acurácia = (TP + TN) / (TP + FP + TN + FN)\n");
+    printf("Acurácia = %d / %d = %.4f (%.2f%%)\n\n", totalCorreto, N, acc_global, acc_global * 100);
 
-    printf("\nMétricas por Classe:\n");
+    printf("--- Métricas por Classe ---\n");
 
+    float macro_precision = 0, macro_recall = 0, macro_f1 = 0;
+    
     for (int c = 0; c < NUM_CLASSES; c++) {
-        // TP (True Positive): acertos na classe 'c'
-        int TP = confusionMatrix[c][c];
+        int TP = confusionMatrix[c][c]; // Verdadeiros Positivos
         
-        // FP (False Positive): previu 'c', mas era outra classe (soma da coluna 'c' exceto TP)
-        int FP = 0;
+        int FP = 0; // Falsos Positivos (Predito como 'c', mas era outra classe)
         for (int i = 0; i < NUM_CLASSES; i++) {
-            if (i != c) {
-                FP += confusionMatrix[i][c];
-            }
+            if (i != c) FP += confusionMatrix[i][c];
         }
 
-        // FN (False Negative): era 'c', mas previu outra classe (soma da linha 'c' exceto TP)
-        int FN = 0;
+        int FN = 0; // Falsos Negativos (Realmente 'c', mas predito como outra classe)
         for (int j = 0; j < NUM_CLASSES; j++) {
-            if (j != c) {
-                FN += confusionMatrix[c][j];
-            }
+            if (j != c) FN += confusionMatrix[c][j];
         }
 
-        // TN (True Negative): não era 'c' e não previu 'c' (soma de todos os outros)
-        int TN = N - TP - FP - FN;
+        // O TN é tudo o que não é TP, FP ou FN
+        int TN = N - TP - FP - FN; 
         
-        // Métrica Precision: TP / (TP + FP)
         float precision = (TP + FP) > 0 ? (float)TP / (TP + FP) : 0.0;
-        
-        // Métrica Recall: TP / (TP + FN)
         float recall = (TP + FN) > 0 ? (float)TP / (TP + FN) : 0.0;
-        
-        // Métrica F1-Score: 2 * (Precision * Recall) / (Precision + Recall)
         float f1_score = (precision + recall) > 0.0001 ? 2.0 * (precision * recall) / (precision + recall) : 0.0;
 
-        printf("  %s:\n", rotulos[c]);
-        printf("    TP: %-3d | FP: %-3d | FN: %-3d | TN: %-3d\n", TP, FP, FN, TN);
-        printf("    Precision: %.4f | Recall: %.4f | F1-Score: %.4f\n", precision, recall, f1_score);
+        macro_precision += precision;
+        macro_recall += recall;
+        macro_f1 += f1_score;
+
+        printf("\n%s:\n", rotulos[c]);
+        printf("  TP=%d | FP=%d | FN=%d | TN=%d\n", TP, FP, FN, TN);
+        printf("  Precision: %.4f (%.1f%%)\n", precision, precision * 100);
+        printf("  Recall:    %.4f (%.1f%%)\n", recall, recall * 100);
+        printf("  F1-Score:  %.4f\n", f1_score);
+        printf("  Acurácia desta classe: %.4f (%.1f%%)\n", 
+                 (float)(TP + TN) / N, ((float)(TP + TN) / N) * 100);
     }
+    
+    printf("\n--- Médias Macro ---\n");
+    printf("Macro-Precision: %.4f\n", macro_precision / NUM_CLASSES);
+    printf("Macro-Recall:    %.4f\n", macro_recall / NUM_CLASSES);
+    printf("Macro-F1:        %.4f\n", macro_f1 / NUM_CLASSES);
 }
+
+// --- CARREGAMENTO DE DADOS ---
+
+/**
+ * @brief Carrega dados do arquivo CSV/TXT.
+ *
+ * @param nomeArquivo Nome do arquivo a ser lido.
+ * @param matrizDados Matriz de saída com as features.
+ * @param rotulosOriginais Matriz de saída com os rótulos.
+ * @return int O número de amostras lidas.
+ */
+int carregarDados(char *nomeArquivo, float matrizDados[N][4], char rotulosOriginais[N][MAX_LABEL_LEN]) {
+    FILE *file = fopen(nomeArquivo, "r");
+    if(file == NULL) return 0;
+
+    char linha[256];
+    int i = 0;
+    
+    while (i < N && fgets(linha, sizeof(linha), file)) {
+        // Remove quebras de linha e retornos de carro
+        linha[strcspn(linha, "\r\n")] = 0;
+        
+        // CORREÇÃO: Usar %9[^\r\n] ao invés de %s para ler a string do rótulo,
+        // pois %s para no espaço. Isso garante que rótulos como "Tipo 1" sejam lidos
+        // corretamente, resolvendo o problema de 150 casos incorretos.
+        if (sscanf(linha, "%f,%f,%f,%f,%9[^\r\n]", 
+            &matrizDados[i][0], &matrizDados[i][1], 
+            &matrizDados[i][2], &matrizDados[i][3], 
+            rotulosOriginais[i]) == 5) {
+            i++;
+        }
+    }
+    
+    fclose(file);
+    return i;
+}
+
+void salvarTamanhosClusters(int tamanhosClusters[N], int numClusters) {
+    FILE *file = fopen("cluster_sizes.txt", "w");
+    if (file == NULL) {
+        printf("\nERRO: Não foi possível criar o arquivo cluster_sizes.txt.\n");
+        return;
+    }
+
+    // Escreve cada tamanho de cluster em uma nova linha
+    for (int i = 0; i < numClusters; i++) {
+        fprintf(file, "%d\n", tamanhosClusters[i]);
+    }
+
+    fclose(file);
+    printf("✓ Tamanhos dos %d clusters salvos em 'cluster_sizes.txt'.\n", numClusters);
+}
+
 
 
 // --- FUNÇÃO PRINCIPAL ---
 
 int main() {
-    FILE *file;
-    char linha[256];
-    int escolha, i = 0, j;
-    float L;
-    float matrizFinal[N][N];
     float matrizDados[N][4];
     char rotulosOriginais[N][MAX_LABEL_LEN];
     char rotulosPreditos[N][MAX_LABEL_LEN];
+    float matrizDist[N][N];
+    float matrizAdjFinal[N][N];
+    float DEmin, DEmax;
+    
+    int melhorTamanhos[N];
+    int melhorClusters[N][N];
+    int melhorTamanhosClusters[N];
 
-    L =0.106;
+    printf("========================================\n");
+    printf(" CLUSTERING NÃO SUPERVISIONADO\n");
+    printf(" Baseado em Componentes Conexos\n");
+    printf("========================================\n\n");
 
-    printf("Valor de L selecionado: %f\n\n", L);
-
-    // Tenta carregar grafo compactado
-    int grafoCarregado = carregarMatrizCSV(matrizFinal, L);
-
-    // Se nao encontrou o grafo, calcula e salva novo arquivo
-    if (!grafoCarregado) {
-        printf("Grafo nao encontrado. Carregando dataset e gerando grafo...\n\n");
-
-        file = fopen("rotulada.txt", "r");
-        if(file == NULL) {
-            printf("Erro ao abrir o arquivo do dataset 'rotulada.csv'.\n");
-            return 1;
-        }
-        i=0;
-        // Leitura do dataset (coordenadas + rótulo original)
-        while (i < N && fgets(linha, sizeof(linha), file)) {
-            
-            // Certifique-se de que a linha possui 4 floats e 1 string
-            if (sscanf(linha, "%f,%f,%f,%f,%9[^\n]", 
-                &matrizDados[i][0], &matrizDados[i][1], 
-                &matrizDados[i][2], &matrizDados[i][3], 
-                rotulosOriginais[i]) == 5) {
-                
-                // *** FIX CRÍTICO: Remove espaços em branco do rótulo para garantir a correspondência (strcmp) ***
-                trim_whitespace(rotulosOriginais[i]); 
-                
-                i++;
-            }
-        }
-        printf("Leitura concluida. Total de casos lidos: %d\n", i);
-        fclose(file);
-
-        if (i < N) {
-             printf("AVISO: Esperado %d amostras, lido apenas %d. Ajustando N.\n", N, i);
-             // Para N fixo, o programa continuará com N=150, mas processará apenas os 'i' dados lidos.
-        }
-
-        // 1. Calcula todas as distâncias e gera a matriz de adjacência (Grafo)
-        calcAllDistAndAdj(matrizDados, matrizFinal, L);
-        
-        // 2. Salva o grafo para reuso
-        salvarMatrizCSV(matrizFinal, L);
+    // Carrega dados
+    printf("Carregando dataset...\n");
+    // Tenta carregar rotulada.txt e depois rotulada.csv (para compatibilidade)
+    int numAmostras = carregarDados("rotulada.txt", matrizDados, rotulosOriginais);
+    if (numAmostras == 0) {
+        numAmostras = carregarDados("rotulada.csv", matrizDados, rotulosOriginais);
     }
     
-    // --- EXECUÇÃO DO CLUSTERING E AVALIAÇÃO ---
+    if (numAmostras == 0 || numAmostras != N) {
+        printf("\nERRO: Não foi possível carregar os dados ou o número de amostras é diferente de N (%d).\n", N);
+        printf("Arquivo esperado: rotulada.txt ou rotulada.csv\n");
+        printf("Formato: valor1,valor2,valor3,valor4,Tipo X\n");
+        return 1;
+    }
+    
+    printf("✓ %d amostras carregadas com sucesso!\n", numAmostras);
 
-    // 1. Estudo sobre a distribuição, rotulagem por votação e preenchimento de rotulosPreditos
-    encontrarComponentesConexos(matrizFinal, rotulosOriginais, rotulosPreditos);
+    // Calcula todas as distâncias
+    printf("Calculando matriz de distâncias...\n");
+    calcAllDist(matrizDados, matrizDist, &DEmin, &DEmax);
+    printf("✓ Matriz de distâncias calculada! (DEmin=%.4f, DEmax=%.4f)\n", DEmin, DEmax);
 
-    // 2. Cálculo do centro de gravidade (média das coordenadas)
+    // FASE 1: TREINAMENTO (não supervisionado) - busca melhor L
+    float melhorL = treinarClustering(matrizDist, DEmin, DEmax, matrizAdjFinal, 
+                                     melhorTamanhos, melhorClusters, melhorTamanhosClusters);
+
+    // Recalcula o número de clusters encontrados com o melhor L
+    int numClustersFinais = 0;
+    for (int i = 0; i < N; i++) {
+        if (melhorTamanhos[i] > 0) numClustersFinais++;
+    }
+    
+    salvarTamanhosClusters(melhorTamanhos, numClustersFinais);
+    // FASE 2: ROTULAGEM (votação usando ground truth)
+    // Passamos o TARGET_CLUSTERS para aplicarRotulagem, mas ela usa numClustersFinais 
+    // ou o número de clusters ideal, dependendo do score.
+    aplicarRotulagem(melhorClusters, melhorTamanhosClusters, numClustersFinais,
+                     rotulosOriginais, rotulosPreditos);
+
+    // FASE 3: CENTROS DE GRAVIDADE
     calcularCentrosDeGravidade(matrizDados, rotulosPreditos);
 
-    // 3. Avaliação da qualidade do agrupamento
+    // FASE 4: AVALIAÇÃO
     calcularMetricas(rotulosOriginais, rotulosPreditos);
+
+    printf("\n========================================\n");
+    printf("  ANÁLISE CONCLUÍDA\n");
+    printf("========================================\n");
 
     return 0;
 }
