@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include <ctype.h>
 
 #define N 150 // Número de nós (amostras)
 #define MAX_LABEL_LEN 10 // Tamanho máximo do rótulo
@@ -23,6 +24,23 @@ typedef struct {
 } Metricas;
 
 // --- FUNÇÕES DE UTENSÍLIOS E CÁLCULO DE GRAFO ---
+// Funcao para remover espacos em branco a esquerda e a direita de uma string (FIX para leitura CSV)
+void trim_whitespace(char *str) {
+    char *end;
+
+    // 1. Remove espacos a esquerda
+    while(isspace((unsigned char)*str)) str++;
+
+    if(*str == 0) // String vazia ou so com espacos
+        return;
+
+    // 2. Remove espacos a direita
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+
+    // 3. Adiciona o terminador de string (null terminator)
+    *(end + 1) = 0;
+}
 
 // Funcao que transforma matriz de distancias em grafo binario (0 ou 1)
 void den(float matrizDist[N][N], float matrizAdj[N][N], float DEmin, float DEmax, float L) {
@@ -80,7 +98,7 @@ void calcAllDistAndAdj(float matrizDados[N][4], float matrizAdjFinal[N][N], floa
 // Salva o grafo como lista de arestas: origem,destino
 void salvarMatrizCSV(float matriz[N][N], float L) {
     char nomeArquivo[50];
-    snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.csv", L);
+    snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.txt", L);
 
     FILE *fp = fopen(nomeArquivo, "w");
     if (fp == NULL) {
@@ -105,7 +123,7 @@ void salvarMatrizCSV(float matriz[N][N], float L) {
 // Lê o grafo salvo
 int carregarMatrizCSV(float matriz[N][N], float L) {
     char nomeArquivo[50];
-    snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.csv", L);
+    snprintf(nomeArquivo, sizeof(nomeArquivo), "grafo_L_%.1f.txt", L);
 
     FILE *fp = fopen(nomeArquivo, "r");
     if (fp == NULL) {
@@ -161,17 +179,23 @@ void votarERotular(int membrosComponente[N], int numMembros, char rotulosOrigina
     int contagemTipo1 = 0;
     int contagemTipo2 = 0;
     int contagemTipo3 = 0;
+    int log_count = 0;
 
     for (int k = 0; k < numMembros; k++) {
         int no = membrosComponente[k];
         
         // Contagem dos votos baseada no rótulo original (Ground Truth)
-        if (strcmp(rotulosOriginais[no], "Tipo1") == 0) { 
+        if (strcmp(rotulosOriginais[no], "Tipo 1") == 0) { 
             contagemTipo1++;
-        } else if (strcmp(rotulosOriginais[no], "Tipo2") == 0) {
+        } else if (strcmp(rotulosOriginais[no], "Tipo 2") == 0) {
             contagemTipo2++;
-        } else if (strcmp(rotulosOriginais[no], "Tipo3") == 0) {
+        } else if (strcmp(rotulosOriginais[no], "Tipo 3") == 0) {
             contagemTipo3++;
+        } else {
+            if (log_count < 5) { // Limita o log a 5 nós para não poluir
+                printf(" [DEBUG-VOTO: Nó %d, Rótulo não reconhecido: '%s']", no, rotulosOriginais[no]);
+                log_count++;
+            }
         }
     }
 
@@ -179,11 +203,11 @@ void votarERotular(int membrosComponente[N], int numMembros, char rotulosOrigina
     
     // Lógica da Votação:
     if (contagemTipo1 >= contagemTipo2 && contagemTipo1 >= contagemTipo3) {
-        rotuloVencedor = "Tipo1";
+        rotuloVencedor = "Tipo 1";
     } else if (contagemTipo2 >= contagemTipo1 && contagemTipo2 >= contagemTipo3) {
-        rotuloVencedor = "Tipo2";
+        rotuloVencedor = "Tipo 2";
     } else {
-        rotuloVencedor = "Tipo3";
+        rotuloVencedor = "Tipo 3";
     }
     
     // Atribui o rótulo vencedor a TODOS os membros do componente (PREDICTED VALUE)
@@ -252,11 +276,11 @@ void calcularCentrosDeGravidade(float matrizDados[N][4], char rotulosPreditos[N]
     for (int i = 0; i < N; i++) {
         int index = -1;
         
-        if (strcmp(rotulosPreditos[i], "Tipo1") == 0) {
+        if (strcmp(rotulosPreditos[i], "Tipo 1") == 0) {
             index = 0;
-        } else if (strcmp(rotulosPreditos[i], "Tipo2") == 0) {
+        } else if (strcmp(rotulosPreditos[i], "Tipo 2") == 0) {
             index = 1;
-        } else if (strcmp(rotulosPreditos[i], "Tipo3") == 0) {
+        } else if (strcmp(rotulosPreditos[i], "Tipo 3") == 0) {
             index = 2;
         }
 
@@ -273,9 +297,9 @@ void calcularCentrosDeGravidade(float matrizDados[N][4], char rotulosPreditos[N]
     // Cálculo da média e exibição
     for (int i = 0; i < NUM_CLASSES; i++) {
         char rotulo[MAX_LABEL_LEN];
-        if (i == 0) strcpy(rotulo, "Tipo1");
-        if (i == 1) strcpy(rotulo, "Tipo2");
-        if (i == 2) strcpy(rotulo, "Tipo3");
+        if (i == 0) strcpy(rotulo, "Tipo 1");
+        if (i == 1) strcpy(rotulo, "Tipo 2");
+        if (i == 2) strcpy(rotulo, "Tipo 3");
 
         if (cg[i].contagem > 0) {
             printf("Centro de Gravidade do Grupo %s (%d membros):\n", rotulo, cg[i].contagem);
@@ -298,7 +322,7 @@ void calcularMetricas(char rotulosOriginais[N][MAX_LABEL_LEN], char rotulosPredi
     // Matriz de Confusão (3x3): Linha=Actual (Original), Coluna=Predicted (Predito)
     // Indices: 0=Tipo1, 1=Tipo2, 2=Tipo3
     int confusionMatrix[NUM_CLASSES][NUM_CLASSES] = {0};
-    char *rotulos[NUM_CLASSES] = {"Tipo1", "Tipo2", "Tipo3"};
+    char *rotulos[NUM_CLASSES] = {"Tipo 1", "Tipo 2", "Tipo 3"};
     int totalCorreto = 0;
 
     // 1. Popula a Matriz de Confusão
@@ -404,28 +428,9 @@ int main() {
     char rotulosOriginais[N][MAX_LABEL_LEN];
     char rotulosPreditos[N][MAX_LABEL_LEN];
 
-    printf("Qual o L?\nDigite 1 para 0.0\nDigite 2 para 0.3\nDigite 3 para 0.5\nDigite 4 para 0.9\n");
-    scanf("%d", &escolha);
+    L =0.106;
 
-    switch(escolha) {
-    case 1:
-        L = 0.0;
-        break;
-    case 2:
-        L = 0.3;
-        break;
-    case 3:
-        L = 0.5;
-        break;
-    case 4:
-        L = 0.9;
-        break;
-    default:
-        printf("Escolha invalida.\n");
-        return 1;
-    }
-
-    printf("Valor de L selecionado: %.1f\n\n", L);
+    printf("Valor de L selecionado: %f\n\n", L);
 
     // Tenta carregar grafo compactado
     int grafoCarregado = carregarMatrizCSV(matrizFinal, L);
@@ -434,7 +439,7 @@ int main() {
     if (!grafoCarregado) {
         printf("Grafo nao encontrado. Carregando dataset e gerando grafo...\n\n");
 
-        file = fopen("rotulada.csv", "r");
+        file = fopen("rotulada.txt", "r");
         if(file == NULL) {
             printf("Erro ao abrir o arquivo do dataset 'rotulada.csv'.\n");
             return 1;
@@ -444,10 +449,13 @@ int main() {
         while (i < N && fgets(linha, sizeof(linha), file)) {
             
             // Certifique-se de que a linha possui 4 floats e 1 string
-            if (sscanf(linha, "%f,%f,%f,%f,%s", 
+            if (sscanf(linha, "%f,%f,%f,%f,%9[^\n]", 
                 &matrizDados[i][0], &matrizDados[i][1], 
                 &matrizDados[i][2], &matrizDados[i][3], 
                 rotulosOriginais[i]) == 5) {
+                
+                // *** FIX CRÍTICO: Remove espaços em branco do rótulo para garantir a correspondência (strcmp) ***
+                trim_whitespace(rotulosOriginais[i]); 
                 
                 i++;
             }
